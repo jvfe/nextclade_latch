@@ -114,10 +114,33 @@ def get_database(database_name: Database) -> LatchDir:
     return LatchDir(str(database_outdir), f"latch:///{database_outname}/")
 
 
-@large_spot_task
-def run_nextclade(sample: Sample, database: LatchDir) -> LatchDir:
+@dataclass_json
+@dataclass
+class NextcladeInput:
+    name: str
+    fasta: LatchFile
+    database: LatchDir
 
-    output_dirname = sample.name
+
+@small_task
+def prepare_nextclade_inputs(
+    samples: List[Sample], database: LatchDir
+) -> List[NextcladeInput]:
+
+    inputs = []
+    for sample in samples:
+        cur_input = NextcladeInput(
+            name=sample.name, fasta=sample.fasta, database=database
+        )
+        inputs.append(cur_input)
+
+    return inputs
+
+
+@large_spot_task
+def run_nextclade(nc_input: NextcladeInput) -> LatchDir:
+
+    output_dirname = nc_input.name
     remote_path = f"latch:///nextclade_outputs/{output_dirname}"
     output_dir = Path(output_dirname).resolve()
 
@@ -125,10 +148,10 @@ def run_nextclade(sample: Sample, database: LatchDir) -> LatchDir:
         "nextclade",
         "run",
         "--input-dataset",
-        database.local_path,
+        nc_input.database.local_path,
         "--output-all",
         output_dirname,
-        sample.fasta,
+        nc_input.fasta.local_path,
     ]
 
     return_code, stdout = _capture_output(_nextclade_cmd)
@@ -138,7 +161,7 @@ def run_nextclade(sample: Sample, database: LatchDir) -> LatchDir:
     message(
         "info",
         {
-            "title": f"Executing NextClade for {sample.name}",
+            "title": f"Executing NextClade for {nc_input.name}",
             "body": running_cmd,
         },
     )
@@ -149,7 +172,7 @@ def run_nextclade(sample: Sample, database: LatchDir) -> LatchDir:
             message(
                 "error",
                 {
-                    "title": f"An error was raised while running NextClade for {sample.name}:",
+                    "title": f"An error was raised while running NextClade for {nc_input.name}:",
                     "body": error,
                 },
             )
@@ -161,7 +184,7 @@ def run_nextclade(sample: Sample, database: LatchDir) -> LatchDir:
 @workflow(metadata)
 def nextclade(
     samples: List[Sample], database_name: Database = Database.sars_cov_2
-) -> LatchFile:
+) -> List[LatchDir]:
     """Analysis of viral genetic sequences
 
     Nextclade
@@ -172,8 +195,8 @@ def nextclade(
     """
 
     database = get_database(database_name=database_name)
-
-    return map_task(run_nextclade)(sample=samples, database=database)
+    nextclade_inputs = prepare_nextclade_inputs(samples=samples, database=database)
+    return map_task(run_nextclade)(nc_input=nextclade_inputs)
 
 
 LaunchPlan(
