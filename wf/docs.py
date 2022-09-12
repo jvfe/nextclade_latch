@@ -19,7 +19,7 @@ metadata.parameters = {
         batch_table_column=True,
         section_title="Data",
     ),
-    "database": LatchParameter(
+    "database_name": LatchParameter(
         display_name="NextClade Database",
         description="Available NextClade databases to align to",
     ),
